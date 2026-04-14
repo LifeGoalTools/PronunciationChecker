@@ -3,16 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Speech Coach - Katakana Strict</title>
+    <title>AI Speech Coach - History Edition</title>
     <style>
         body { font-family: 'Segoe UI', sans-serif; display: flex; justify-content: center; padding: 40px; background-color: #f8f9fa; }
-        .container { background: white; padding: 40px; border-radius: 24px; box-shadow: 0 15px 35px rgba(0,0,0,0.05); width: 100%; max-width: 600px; text-align: center; }
+        .container { background: white; padding: 40px; border-radius: 24px; box-shadow: 0 15px 35px rgba(0,0,0,0.05); width: 100%; max-width: 600px; text-align: center; position: relative; }
         .step-label { color: #adb5bd; font-weight: 700; text-transform: uppercase; font-size: 11px; margin-bottom: 10px; letter-spacing: 1px; }
         
         .sentence-display { font-size: 32px; line-height: 1.5; margin: 20px 0; font-weight: 600; color: #333; }
         .word { display: inline-block; margin: 0 4px; padding: 0 2px; transition: all 0.2s; border-bottom: 3px solid transparent; }
         
-        /* Highlighting */
         .correct { color: #2ecc71; border-bottom-color: #2ecc71; }
         .wrong { color: #e74c3c; border-bottom-color: #e74c3c; }
 
@@ -28,9 +27,32 @@
 
         button { background: #212529; color: white; border: none; padding: 14px 35px; border-radius: 12px; cursor: pointer; font-size: 16px; font-weight: 700; display: none; margin: 20px auto; }
         kbd { background: #eee; border: 1px solid #ccc; border-radius: 4px; padding: 2px 6px; font-family: monospace; }
+
+        /* HISTORY OVERLAY STYLES */
+        #historyOverlay { 
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
+            background: rgba(0,0,0,0.8); z-index: 1000; justify-content: center; align-items: center; 
+        }
+        .history-content { 
+            background: white; width: 90%; max-width: 500px; max-height: 80vh; 
+            border-radius: 20px; padding: 30px; overflow-y: auto; text-align: left; 
+        }
+        .history-item { border-bottom: 1px solid #eee; padding: 15px 0; }
+        .history-item:last-child { border: none; }
+        .h-score { font-weight: 800; color: #228be6; float: right; }
+        .h-sentence { font-weight: 600; display: block; margin-bottom: 4px; }
+        .h-transcript { color: #888; font-size: 13px; font-style: italic; }
     </style>
 </head>
 <body>
+
+<div id="historyOverlay" onclick="toggleHistory()">
+    <div class="history-content" onclick="event.stopPropagation()">
+        <h2 style="margin-top:0">Session History</h2>
+        <div id="historyList"></div>
+        <button onclick="toggleHistory()" style="display:block; margin-top:20px; width:100%">Close</button>
+    </div>
+</div>
 
 <div class="container">
     <div id="stepLabel" class="step-label">Loading Sentences...</div>
@@ -40,19 +62,20 @@
     <div id="score" class="score-display">0%</div>
 
     <div id="transcriptBox" class="transcript-container">
-        <div class="transcript-label">Strict Transcription Result:</div>
+        <div class="transcript-label">Strict Transcription:</div>
         <div id="transcriptText" class="transcript-text"></div>
     </div>
 
     <button id="nextBtn" onclick="nextSentence()">Next Sentence →</button>
 
     <div style="margin-top: 30px; color: #adb5bd; font-size: 12px;">
-        <kbd>Space</kbd> Start/Stop &nbsp; | &nbsp; <kbd>L</kbd> Hear Model
+        <kbd>Space</kbd> Start/Stop &nbsp; | &nbsp; <kbd>L</kbd> Model &nbsp; | &nbsp; <kbd>H</kbd> History
     </div>
 </div>
 
 <script>
     let sentences = [];
+    let historyData = [];
     let currentStep = 0;
     let isListening = false;
     let recognition;
@@ -107,7 +130,33 @@
             }
         }
         if (e.key.toLowerCase() === "l") playExample();
+        if (e.key.toLowerCase() === "h") toggleHistory();
     });
+
+    function toggleHistory() {
+        const overlay = document.getElementById('historyOverlay');
+        if (overlay.style.display === "flex") {
+            overlay.style.display = "none";
+        } else {
+            renderHistory();
+            overlay.style.display = "flex";
+        }
+    }
+
+    function renderHistory() {
+        const list = document.getElementById('historyList');
+        if (historyData.length === 0) {
+            list.innerHTML = "<p style='color:#bbb'>No scores yet. Complete an exercise first!</p>";
+            return;
+        }
+        list.innerHTML = historyData.map(item => `
+            <div class="history-item">
+                <span class="h-score">${item.score}%</span>
+                <span class="h-sentence">${item.sentence}</span>
+                <span class="h-transcript">Heard: "${item.heard}"</span>
+            </div>
+        `).join("");
+    }
 
     function stopAndAnalyze() {
         recognition.stop();
@@ -117,15 +166,13 @@
         watchdog = setTimeout(() => {
             if (document.getElementById('status').innerText === "⏳ Comparing...") {
                 recognition.abort();
-                resetUI("⚠️ Timed out. Try again!");
+                resetUI("⚠️ Timed out.");
             }
-        }, 1000); // 1-second watchdog
+        }, 1200);
     }
 
     recognition.onresult = (event) => {
         clearTimeout(watchdog);
-        if (!event.results.length) { resetUI("❓ No audio."); return; }
-
         const rawTranscript = event.results[0][0].transcript;
         const transcriptClean = rawTranscript.toLowerCase().replace(/[?.!]/g,"").trim();
         const targetClean = sentences[currentStep].toLowerCase().replace(/[?.!]/g,"").trim();
@@ -133,28 +180,23 @@
         const targetWords = targetClean.split(/\s+/);
         const transcriptWords = transcriptClean.split(/\s+/);
 
-        // 1. VISUAL FEEDBACK (WORD MATCHING)
         targetWords.forEach((tWord, i) => {
             const el = document.getElementById(`word-${i}`);
-            // Does this specific word exist in the result?
-            if (transcriptWords.includes(tWord)) {
-                el.className = "word correct";
-            } else {
-                el.className = "word wrong";
-            }
+            if (transcriptWords.includes(tWord)) el.className = "word correct";
+            else el.className = "word wrong";
         });
 
-        // 2. ULTRA-STRICT SCORING (Character Level)
         let score = calculateCharacterScore(targetClean, transcriptClean);
-        
-        // 3. WORD COUNT PENALTY (Critical for Katakana English)
-        // If "What" becomes "What o", the word count changes. We dock 30%.
-        if (targetWords.length !== transcriptWords.length) {
-            score -= 30;
-        }
-
+        if (targetWords.length !== transcriptWords.length) score -= 30;
         score = Math.max(0, Math.round(score));
         
+        // Add to history
+        historyData.unshift({
+            sentence: sentences[currentStep],
+            score: score,
+            heard: rawTranscript
+        });
+
         document.getElementById('score').innerText = score + "%";
         document.getElementById('score').style.display = "block";
         document.getElementById('transcriptText').innerText = `"${rawTranscript}"`;
