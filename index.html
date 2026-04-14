@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Speech Coach - Rapid Edition</title>
+    <title>AI Speech Coach - Transcript Edition</title>
     <style>
         body { font-family: 'Segoe UI', sans-serif; display: flex; justify-content: center; padding: 40px; background-color: #f8f9fa; }
         .container { background: white; padding: 40px; border-radius: 24px; box-shadow: 0 15px 35px rgba(0,0,0,0.05); width: 100%; max-width: 600px; text-align: center; }
@@ -12,7 +12,6 @@
         .sentence-display { font-size: 32px; line-height: 1.5; margin: 20px 0; font-weight: 600; color: #333; }
         .word { display: inline-block; margin: 0 4px; padding: 0 2px; transition: all 0.2s; border-bottom: 3px solid transparent; }
         
-        /* Clear States */
         .correct { color: #2ecc71; border-bottom-color: #2ecc71; }
         .wrong { color: #e74c3c; border-bottom-color: #e74c3c; }
 
@@ -21,8 +20,13 @@
         .processing { background: #3498db; color: white; }
 
         .score-display { font-size: 48px; font-weight: 800; color: #228be6; margin: 10px 0; display: none; }
-        button { background: #212529; color: white; border: none; padding: 12px 30px; border-radius: 10px; cursor: pointer; font-size: 16px; display: none; margin: 10px auto; }
         
+        /* Transcript Styles */
+        .transcript-container { margin-top: 20px; padding: 15px; background: #fdfdfd; border: 1px dashed #ddd; border-radius: 12px; display: none; text-align: left; }
+        .transcript-label { font-size: 10px; font-weight: 800; color: #bbb; text-transform: uppercase; margin-bottom: 5px; }
+        .transcript-text { color: #555; font-style: italic; font-size: 16px; }
+
+        button { background: #212529; color: white; border: none; padding: 12px 30px; border-radius: 10px; cursor: pointer; font-size: 16px; display: none; margin: 10px auto; }
         kbd { background: #eee; border: 1px solid #ccc; border-radius: 4px; padding: 2px 6px; font-family: monospace; }
     </style>
 </head>
@@ -34,6 +38,11 @@
     
     <div id="status" class="status-pill">Press Space to Record</div>
     <div id="score" class="score-display">0%</div>
+
+    <div id="transcriptBox" class="transcript-container">
+        <div class="transcript-label">What the AI heard:</div>
+        <div id="transcriptText" class="transcript-text"></div>
+    </div>
 
     <button id="nextBtn" onclick="nextSentence()">Next Sentence →</button>
 
@@ -49,7 +58,6 @@
     let recognition;
     let watchdog;
 
-    // Initialize Speech Recognition
     if ('webkitSpeechRecognition' in window) {
         recognition = new webkitSpeechRecognition();
         recognition.continuous = false;
@@ -60,10 +68,9 @@
     async function loadData() {
         try {
             const resp = await fetch('sentences.json');
-            if (!resp.ok) throw new Error();
             sentences = await resp.json();
             renderSentence();
-        } catch (e) { document.getElementById('stepLabel').innerText = "JSON FILE NOT FOUND"; }
+        } catch (e) { document.getElementById('stepLabel').innerText = "JSON ERROR"; }
     }
 
     function renderSentence() {
@@ -72,6 +79,7 @@
         document.getElementById('stepLabel').innerText = `Sentence ${currentStep + 1} of ${sentences.length}`;
         document.getElementById('score').style.display = "none";
         document.getElementById('nextBtn').style.display = "none";
+        document.getElementById('transcriptBox').style.display = "none";
         resetUI("Press Space to Record");
     }
 
@@ -94,13 +102,14 @@
 
     function startMic() {
         try {
-            recognition.abort(); // Kill any stuck sessions
+            recognition.abort();
             recognition.start();
             isListening = true;
             document.getElementById('status').innerText = "🔴 RECORDING...";
             document.getElementById('status').className = "status-pill listening";
             document.getElementById('score').style.display = "none";
-        } catch(e) { resetUI("Mic Error. Try again."); }
+            document.getElementById('transcriptBox').style.display = "none";
+        } catch(e) { resetUI("Mic Error"); }
     }
 
     function stopAndAnalyze() {
@@ -109,11 +118,10 @@
         document.getElementById('status').innerText = "⏳ Analyzing...";
         document.getElementById('status').className = "status-pill processing";
 
-        // 1-SECOND WATCHDOG: Force reset if engine hangs
         watchdog = setTimeout(() => {
             if (document.getElementById('status').innerText === "⏳ Analyzing...") {
                 recognition.abort();
-                resetUI("⚠️ Analysis timed out. Try again!");
+                resetUI("⚠️ Timeout. Try again!");
             }
         }, 1000);
     }
@@ -122,19 +130,18 @@
         clearTimeout(watchdog);
         
         if (!event.results || event.results.length === 0) {
-            resetUI("❓ No sound detected.");
+            resetUI("❓ No sound.");
             return;
         }
 
-        const transcript = event.results[0][0].transcript.toLowerCase().replace(/[?.!,]/g,"");
+        const rawTranscript = event.results[0][0].transcript;
+        const transcript = rawTranscript.toLowerCase().replace(/[?.!,]/g,"");
         const targetWords = sentences[currentStep].split(" ");
         let correctCount = 0;
 
-        // Process EVERY word - prevents hanging on wrong answers
         targetWords.forEach((word, i) => {
             const cleanTarget = word.toLowerCase().replace(/[?.!,]/g,"");
             const el = document.getElementById(`word-${i}`);
-            
             if (transcript.includes(cleanTarget)) {
                 el.className = "word correct";
                 correctCount++;
@@ -143,20 +150,21 @@
             }
         });
 
-        // Show Score (even if 0%)
+        // Update Score and Show Transcript
         const finalScore = Math.round((correctCount / targetWords.length) * 100);
-        const scoreEl = document.getElementById('score');
-        scoreEl.innerText = finalScore + "%";
-        scoreEl.style.display = "block";
+        document.getElementById('score').innerText = finalScore + "%";
+        document.getElementById('score').style.display = "block";
+        
+        document.getElementById('transcriptText').innerText = `"${rawTranscript}"`;
+        document.getElementById('transcriptBox').style.display = "block";
         
         document.getElementById('nextBtn').style.display = "block";
-        resetUI("Done!");
+        resetUI("Analysis Complete");
     };
 
     recognition.onerror = (event) => {
         clearTimeout(watchdog);
-        if (event.error === 'no-speech') resetUI("🔇 No speech detected.");
-        else resetUI("Error: " + event.error);
+        resetUI(event.error === 'no-speech' ? "🔇 No speech." : "Error: " + event.error);
     };
 
     function playExample() {
