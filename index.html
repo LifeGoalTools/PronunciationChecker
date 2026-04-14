@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Speech Coach - Katakana Strict Mode</title>
+    <title>AI Speech Coach - Katakana Strict</title>
     <style>
         body { font-family: 'Segoe UI', sans-serif; display: flex; justify-content: center; padding: 40px; background-color: #f8f9fa; }
         .container { background: white; padding: 40px; border-radius: 24px; box-shadow: 0 15px 35px rgba(0,0,0,0.05); width: 100%; max-width: 600px; text-align: center; }
@@ -12,6 +12,7 @@
         .sentence-display { font-size: 32px; line-height: 1.5; margin: 20px 0; font-weight: 600; color: #333; }
         .word { display: inline-block; margin: 0 4px; padding: 0 2px; transition: all 0.2s; border-bottom: 3px solid transparent; }
         
+        /* Highlighting */
         .correct { color: #2ecc71; border-bottom-color: #2ecc71; }
         .wrong { color: #e74c3c; border-bottom-color: #e74c3c; }
 
@@ -21,7 +22,7 @@
 
         .score-display { font-size: 52px; font-weight: 900; color: #228be6; margin: 10px 0; display: none; }
         
-        .transcript-container { margin-top: 20px; padding: 15px; background: #fffcf0; border: 1px dashed #f1c40f; border-radius: 12px; display: none; text-align: left; }
+        .transcript-container { margin-top: 20px; padding: 15px; background: #fdfdfd; border: 1px dashed #ddd; border-radius: 12px; display: none; text-align: left; }
         .transcript-label { font-size: 10px; font-weight: 800; color: #999; text-transform: uppercase; margin-bottom: 5px; }
         .transcript-text { color: #444; font-style: italic; font-size: 17px; }
 
@@ -32,21 +33,21 @@
 <body>
 
 <div class="container">
-    <div id="stepLabel" class="step-label">Loading...</div>
+    <div id="stepLabel" class="step-label">Loading Sentences...</div>
     <div id="textContainer" class="sentence-display"></div>
     
     <div id="status" class="status-pill">Press Space to Record</div>
     <div id="score" class="score-display">0%</div>
 
     <div id="transcriptBox" class="transcript-container">
-        <div class="transcript-label">AI Transcription (Detecting Katakana):</div>
+        <div class="transcript-label">Strict Transcription Result:</div>
         <div id="transcriptText" class="transcript-text"></div>
     </div>
 
     <button id="nextBtn" onclick="nextSentence()">Next Sentence →</button>
 
     <div style="margin-top: 30px; color: #adb5bd; font-size: 12px;">
-        <kbd>Space</kbd> Start/Stop &nbsp; | &nbsp; <kbd>L</kbd> Model Audio
+        <kbd>Space</kbd> Start/Stop &nbsp; | &nbsp; <kbd>L</kbd> Hear Model
     </div>
 </div>
 
@@ -102,13 +103,13 @@
                 document.getElementById('score').style.display = "none";
                 document.getElementById('transcriptBox').style.display = "none";
             } else {
-                stopProcessing();
+                stopAndAnalyze();
             }
         }
         if (e.key.toLowerCase() === "l") playExample();
     });
 
-    function stopProcessing() {
+    function stopAndAnalyze() {
         recognition.stop();
         isListening = false;
         document.getElementById('status').innerText = "⏳ Comparing...";
@@ -116,79 +117,78 @@
         watchdog = setTimeout(() => {
             if (document.getElementById('status').innerText === "⏳ Comparing...") {
                 recognition.abort();
-                resetUI("⚠️ Signal lost. Speak clearly.");
+                resetUI("⚠️ Timed out. Try again!");
             }
-        }, 1200);
+        }, 1000); // 1-second watchdog
     }
 
     recognition.onresult = (event) => {
         clearTimeout(watchdog);
+        if (!event.results.length) { resetUI("❓ No audio."); return; }
+
         const rawTranscript = event.results[0][0].transcript;
-        const transcriptClean = rawTranscript.toLowerCase().replace(/[?.!,]/g,"").trim();
-        const targetClean = sentences[currentStep].toLowerCase().replace(/[?.!,]/g,"").trim();
+        const transcriptClean = rawTranscript.toLowerCase().replace(/[?.!]/g,"").trim();
+        const targetClean = sentences[currentStep].toLowerCase().replace(/[?.!]/g,"").trim();
         
         const targetWords = targetClean.split(/\s+/);
         const transcriptWords = transcriptClean.split(/\s+/);
-        
-        let matchCount = 0;
+
+        // 1. VISUAL FEEDBACK (WORD MATCHING)
         targetWords.forEach((tWord, i) => {
             const el = document.getElementById(`word-${i}`);
-            // Does this word exist in your result?
+            // Does this specific word exist in the result?
             if (transcriptWords.includes(tWord)) {
                 el.className = "word correct";
-                matchCount++;
             } else {
                 el.className = "word wrong";
             }
         });
 
-        // KATAKANA STRICTION: Compare full strings for extra syllables/words
-        let score = calculateKatakanaStrictScore(targetClean, transcriptClean);
+        // 2. ULTRA-STRICT SCORING (Character Level)
+        let score = calculateCharacterScore(targetClean, transcriptClean);
         
-        // Penalty: If user said more words than required, subtract 15% per extra word
-        if (transcriptWords.length > targetWords.length) {
-            let penalty = (transcriptWords.length - targetWords.length) * 15;
-            score = score - penalty;
+        // 3. WORD COUNT PENALTY (Critical for Katakana English)
+        // If "What" becomes "What o", the word count changes. We dock 30%.
+        if (targetWords.length !== transcriptWords.length) {
+            score -= 30;
         }
 
         score = Math.max(0, Math.round(score));
+        
         document.getElementById('score').innerText = score + "%";
         document.getElementById('score').style.display = "block";
         document.getElementById('transcriptText').innerText = `"${rawTranscript}"`;
         document.getElementById('transcriptBox').style.display = "block";
         document.getElementById('nextBtn').style.display = "block";
-        resetUI("Analysis Complete");
+        resetUI("Done!");
     };
 
-    function calculateKatakanaStrictScore(s1, s2) {
-        if (s1 === s2) return 100;
-        let longer = s1.length > s2.length ? s1 : s2;
-        let shorter = s1.length > s2.length ? s2 : s1;
-        
-        const costs = [];
-        for (let i = 0; i <= s1.length; i++) {
-            let lastValue = i;
-            for (let j = 0; j <= s2.length; j++) {
-                if (i === 0) costs[j] = j;
-                else if (j > 0) {
-                    let newValue = costs[j - 1];
-                    if (s1.charAt(i - 1) !== s2.charAt(j - 1))
-                        newValue = Math.min(Math.min(newValue, lastValue), costs[j]) + 1;
-                    costs[j - 1] = lastValue;
-                    lastValue = newValue;
-                }
-            }
-            if (i > 0) costs[s2.length] = lastValue;
-        }
-        return ((longer.length - costs[s2.length]) / longer.length) * 100;
+    function calculateCharacterScore(target, spoken) {
+        if (target === spoken) return 100;
+        const dist = getLevenshteinDistance(target, spoken);
+        const maxLen = Math.max(target.length, spoken.length);
+        return ((maxLen - dist) / maxLen) * 100;
     }
 
-    recognition.onerror = () => resetUI("🔇 No audio detected.");
+    function getLevenshteinDistance(s1, s2) {
+        const track = Array(s2.length + 1).fill(null).map(() => Array(s1.length + 1).fill(null));
+        for (let i = 0; i <= s1.length; i++) track[0][i] = i;
+        for (let j = 0; j <= s2.length; j++) track[j][0] = j;
+        for (let j = 1; j <= s2.length; j++) {
+            for (let i = 1; i <= s1.length; i++) {
+                const indicator = s1[i - 1] === s2[j - 1] ? 0 : 1;
+                track[j][i] = Math.min(track[j][i - 1] + 1, track[j - 1][i] + 1, track[j - 1][i - 1] + indicator);
+            }
+        }
+        return track[s2.length][s1.length];
+    }
+
+    recognition.onerror = () => resetUI("🔇 Mic Error");
 
     function playExample() {
         window.speechSynthesis.cancel();
         const utterance = new SpeechSynthesisUtterance(sentences[currentStep]);
-        utterance.rate = 0.85; // Slightly slower for better learning
+        utterance.rate = 0.85;
         window.speechSynthesis.speak(utterance);
     }
 
