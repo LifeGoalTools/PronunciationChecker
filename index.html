@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Speech Coach - Transcript Edition</title>
+    <title>AI Speech Coach - Katakana Strict Mode</title>
     <style>
         body { font-family: 'Segoe UI', sans-serif; display: flex; justify-content: center; padding: 40px; background-color: #f8f9fa; }
         .container { background: white; padding: 40px; border-radius: 24px; box-shadow: 0 15px 35px rgba(0,0,0,0.05); width: 100%; max-width: 600px; text-align: center; }
-        .step-label { color: #adb5bd; font-weight: 700; text-transform: uppercase; font-size: 12px; margin-bottom: 10px; }
+        .step-label { color: #adb5bd; font-weight: 700; text-transform: uppercase; font-size: 11px; margin-bottom: 10px; letter-spacing: 1px; }
         
         .sentence-display { font-size: 32px; line-height: 1.5; margin: 20px 0; font-weight: 600; color: #333; }
         .word { display: inline-block; margin: 0 4px; padding: 0 2px; transition: all 0.2s; border-bottom: 3px solid transparent; }
@@ -15,39 +15,38 @@
         .correct { color: #2ecc71; border-bottom-color: #2ecc71; }
         .wrong { color: #e74c3c; border-bottom-color: #e74c3c; }
 
-        .status-pill { display: inline-block; padding: 10px 25px; border-radius: 50px; font-size: 14px; background: #eee; margin: 20px 0; transition: 0.2s; }
+        .status-pill { display: inline-block; padding: 10px 25px; border-radius: 50px; font-size: 14px; background: #eee; margin: 20px 0; font-weight: 600; }
         .listening { background: #ff4757; color: white; }
         .processing { background: #3498db; color: white; }
 
-        .score-display { font-size: 48px; font-weight: 800; color: #228be6; margin: 10px 0; display: none; }
+        .score-display { font-size: 52px; font-weight: 900; color: #228be6; margin: 10px 0; display: none; }
         
-        /* Transcript Styles */
-        .transcript-container { margin-top: 20px; padding: 15px; background: #fdfdfd; border: 1px dashed #ddd; border-radius: 12px; display: none; text-align: left; }
-        .transcript-label { font-size: 10px; font-weight: 800; color: #bbb; text-transform: uppercase; margin-bottom: 5px; }
-        .transcript-text { color: #555; font-style: italic; font-size: 16px; }
+        .transcript-container { margin-top: 20px; padding: 15px; background: #fffcf0; border: 1px dashed #f1c40f; border-radius: 12px; display: none; text-align: left; }
+        .transcript-label { font-size: 10px; font-weight: 800; color: #999; text-transform: uppercase; margin-bottom: 5px; }
+        .transcript-text { color: #444; font-style: italic; font-size: 17px; }
 
-        button { background: #212529; color: white; border: none; padding: 12px 30px; border-radius: 10px; cursor: pointer; font-size: 16px; display: none; margin: 10px auto; }
+        button { background: #212529; color: white; border: none; padding: 14px 35px; border-radius: 12px; cursor: pointer; font-size: 16px; font-weight: 700; display: none; margin: 20px auto; }
         kbd { background: #eee; border: 1px solid #ccc; border-radius: 4px; padding: 2px 6px; font-family: monospace; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <div id="stepLabel" class="step-label">Loading Sentences...</div>
+    <div id="stepLabel" class="step-label">Loading...</div>
     <div id="textContainer" class="sentence-display"></div>
     
     <div id="status" class="status-pill">Press Space to Record</div>
     <div id="score" class="score-display">0%</div>
 
     <div id="transcriptBox" class="transcript-container">
-        <div class="transcript-label">What the AI heard:</div>
+        <div class="transcript-label">AI Transcription (Detecting Katakana):</div>
         <div id="transcriptText" class="transcript-text"></div>
     </div>
 
     <button id="nextBtn" onclick="nextSentence()">Next Sentence →</button>
 
-    <div style="margin-top: 30px; color: #adb5bd; font-size: 13px;">
-        <kbd>Space</kbd> Start/Stop &nbsp; | &nbsp; <kbd>L</kbd> Hear Example
+    <div style="margin-top: 30px; color: #adb5bd; font-size: 12px;">
+        <kbd>Space</kbd> Start/Stop &nbsp; | &nbsp; <kbd>L</kbd> Model Audio
     </div>
 </div>
 
@@ -70,11 +69,11 @@
             const resp = await fetch('sentences.json');
             sentences = await resp.json();
             renderSentence();
-        } catch (e) { document.getElementById('stepLabel').innerText = "JSON ERROR"; }
+        } catch (e) { document.getElementById('stepLabel').innerText = "JSON Error"; }
     }
 
     function renderSentence() {
-        const words = sentences[currentStep].split(" ");
+        const words = sentences[currentStep].split(/\s+/);
         document.getElementById('textContainer').innerHTML = words.map((w, i) => `<span class="word" id="word-${i}">${w}</span>`).join("");
         document.getElementById('stepLabel').innerText = `Sentence ${currentStep + 1} of ${sentences.length}`;
         document.getElementById('score').style.display = "none";
@@ -94,83 +93,102 @@
     window.addEventListener('keydown', (e) => {
         if (e.code === "Space") {
             e.preventDefault();
-            if (!isListening) startMic();
-            else stopAndAnalyze();
+            if (!isListening) {
+                recognition.abort();
+                recognition.start();
+                isListening = true;
+                document.getElementById('status').innerText = "🔴 RECORDING...";
+                document.getElementById('status').className = "status-pill listening";
+                document.getElementById('score').style.display = "none";
+                document.getElementById('transcriptBox').style.display = "none";
+            } else {
+                stopProcessing();
+            }
         }
         if (e.key.toLowerCase() === "l") playExample();
     });
 
-    function startMic() {
-        try {
-            recognition.abort();
-            recognition.start();
-            isListening = true;
-            document.getElementById('status').innerText = "🔴 RECORDING...";
-            document.getElementById('status').className = "status-pill listening";
-            document.getElementById('score').style.display = "none";
-            document.getElementById('transcriptBox').style.display = "none";
-        } catch(e) { resetUI("Mic Error"); }
-    }
-
-    function stopAndAnalyze() {
+    function stopProcessing() {
         recognition.stop();
         isListening = false;
-        document.getElementById('status').innerText = "⏳ Analyzing...";
+        document.getElementById('status').innerText = "⏳ Comparing...";
         document.getElementById('status').className = "status-pill processing";
-
         watchdog = setTimeout(() => {
-            if (document.getElementById('status').innerText === "⏳ Analyzing...") {
+            if (document.getElementById('status').innerText === "⏳ Comparing...") {
                 recognition.abort();
-                resetUI("⚠️ Timeout. Try again!");
+                resetUI("⚠️ Signal lost. Speak clearly.");
             }
-        }, 1000);
+        }, 1200);
     }
 
     recognition.onresult = (event) => {
         clearTimeout(watchdog);
-        
-        if (!event.results || event.results.length === 0) {
-            resetUI("❓ No sound.");
-            return;
-        }
-
         const rawTranscript = event.results[0][0].transcript;
-        const transcript = rawTranscript.toLowerCase().replace(/[?.!,]/g,"");
-        const targetWords = sentences[currentStep].split(" ");
-        let correctCount = 0;
-
-        targetWords.forEach((word, i) => {
-            const cleanTarget = word.toLowerCase().replace(/[?.!,]/g,"");
+        const transcriptClean = rawTranscript.toLowerCase().replace(/[?.!,]/g,"").trim();
+        const targetClean = sentences[currentStep].toLowerCase().replace(/[?.!,]/g,"").trim();
+        
+        const targetWords = targetClean.split(/\s+/);
+        const transcriptWords = transcriptClean.split(/\s+/);
+        
+        let matchCount = 0;
+        targetWords.forEach((tWord, i) => {
             const el = document.getElementById(`word-${i}`);
-            if (transcript.includes(cleanTarget)) {
+            // Does this word exist in your result?
+            if (transcriptWords.includes(tWord)) {
                 el.className = "word correct";
-                correctCount++;
+                matchCount++;
             } else {
                 el.className = "word wrong";
             }
         });
 
-        // Update Score and Show Transcript
-        const finalScore = Math.round((correctCount / targetWords.length) * 100);
-        document.getElementById('score').innerText = finalScore + "%";
-        document.getElementById('score').style.display = "block";
+        // KATAKANA STRICTION: Compare full strings for extra syllables/words
+        let score = calculateKatakanaStrictScore(targetClean, transcriptClean);
         
+        // Penalty: If user said more words than required, subtract 15% per extra word
+        if (transcriptWords.length > targetWords.length) {
+            let penalty = (transcriptWords.length - targetWords.length) * 15;
+            score = score - penalty;
+        }
+
+        score = Math.max(0, Math.round(score));
+        document.getElementById('score').innerText = score + "%";
+        document.getElementById('score').style.display = "block";
         document.getElementById('transcriptText').innerText = `"${rawTranscript}"`;
         document.getElementById('transcriptBox').style.display = "block";
-        
         document.getElementById('nextBtn').style.display = "block";
         resetUI("Analysis Complete");
     };
 
-    recognition.onerror = (event) => {
-        clearTimeout(watchdog);
-        resetUI(event.error === 'no-speech' ? "🔇 No speech." : "Error: " + event.error);
-    };
+    function calculateKatakanaStrictScore(s1, s2) {
+        if (s1 === s2) return 100;
+        let longer = s1.length > s2.length ? s1 : s2;
+        let shorter = s1.length > s2.length ? s2 : s1;
+        
+        const costs = [];
+        for (let i = 0; i <= s1.length; i++) {
+            let lastValue = i;
+            for (let j = 0; j <= s2.length; j++) {
+                if (i === 0) costs[j] = j;
+                else if (j > 0) {
+                    let newValue = costs[j - 1];
+                    if (s1.charAt(i - 1) !== s2.charAt(j - 1))
+                        newValue = Math.min(Math.min(newValue, lastValue), costs[j]) + 1;
+                    costs[j - 1] = lastValue;
+                    lastValue = newValue;
+                }
+            }
+            if (i > 0) costs[s2.length] = lastValue;
+        }
+        return ((longer.length - costs[s2.length]) / longer.length) * 100;
+    }
+
+    recognition.onerror = () => resetUI("🔇 No audio detected.");
 
     function playExample() {
         window.speechSynthesis.cancel();
         const utterance = new SpeechSynthesisUtterance(sentences[currentStep]);
-        utterance.rate = 0.9;
+        utterance.rate = 0.85; // Slightly slower for better learning
         window.speechSynthesis.speak(utterance);
     }
 
