@@ -3,20 +3,23 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>English Practice - 3 Step Drill</title>
+    <title>English Practice - Fast Response</title>
     <style>
         body { font-family: 'Segoe UI', sans-serif; display: flex; justify-content: center; padding: 40px; background-color: #f0f2f5; }
         .container { background: white; padding: 40px; border-radius: 20px; box-shadow: 0 15px 35px rgba(0,0,0,0.1); width: 100%; max-width: 600px; text-align: center; }
         .step-indicator { color: #888; font-weight: bold; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 1px; }
         .target-sentence { font-size: 28px; color: #2c3e50; margin-bottom: 30px; min-height: 80px; display: flex; align-items: center; justify-content: center; font-weight: 600; }
-        .status-pill { display: inline-block; padding: 8px 20px; border-radius: 20px; font-size: 14px; margin-bottom: 20px; background: #eee; transition: all 0.3s; }
-        .listening { background: #ff4757; color: white; animation: pulse 1.5s infinite; }
-        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.7; } 100% { opacity: 1; } }
+        .status-pill { display: inline-block; padding: 10px 25px; border-radius: 50px; font-size: 14px; margin-bottom: 20px; background: #eee; transition: all 0.2s; border: 2px solid transparent; }
+        .listening { background: #ffeaea; color: #ff4757; border-color: #ff4757; font-weight: bold; }
+        .processing { background: #e3f2fd; color: #2196f3; }
         .controls { margin-top: 20px; }
-        .hint { font-size: 13px; color: #999; margin-top: 15px; }
-        .score-box { margin-top: 20px; padding: 20px; border-radius: 10px; display: none; background: #f9f9f9; }
-        .big-score { font-size: 48px; font-weight: bold; color: #2ed573; }
-        button { background: #2f3542; color: white; border: none; padding: 15px 30px; border-radius: 10px; cursor: pointer; font-size: 16px; }
+        .hint { font-size: 13px; color: #999; margin-top: 20px; padding: 10px; border-top: 1px solid #eee; }
+        .score-box { margin-top: 20px; padding: 20px; border-radius: 15px; display: none; background: #f8f9fa; border: 1px solid #e9ecef; }
+        .big-score { font-size: 52px; font-weight: bold; color: #2ed573; margin-bottom: 10px; }
+        button { background: #2f3542; color: white; border: none; padding: 15px 40px; border-radius: 12px; cursor: pointer; font-size: 18px; font-weight: 600; transition: transform 0.1s; }
+        button:hover { background: #1e222b; }
+        button:active { transform: scale(0.95); }
+        kbd { background: #eee; border-radius: 3px; border: 1px solid #ccc; padding: 1px 6px; font-family: sans-serif; }
     </style>
 </head>
 <body>
@@ -29,17 +32,20 @@
 
     <div id="results" class="score-box">
         <div id="scoreDisplay" class="big-score">0%</div>
-        <p>I heard: <i id="heardText">...</i></p>
+        <p>I heard: <i id="heardText" style="color: #555;">...</i></p>
         <button onclick="nextSentence()" id="nextBtn">Next Sentence</button>
     </div>
 
-    <div class="hint">Shortcut: Tap <b>Space Bar</b> to Start/Stop</div>
+    <div class="hint">
+        Use <kbd>Space Bar</kbd> to toggle microphone.
+    </div>
 </div>
 
 <script>
     const sentences = ["What day is it?", "What is the date today?", "How's the weather?"];
     let currentStep = 0;
     let isListening = false;
+    let processingTimeout;
 
     const targetDisplay = document.getElementById('targetDisplay');
     const stepLabel = document.getElementById('stepLabel');
@@ -50,43 +56,56 @@
 
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     const recognition = new SpeechRecognition();
+    
     recognition.lang = 'en-US';
     recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
 
-    // --- Key Logic: Space Bar Toggle ---
+    // SPACE BAR HANDLER
     window.addEventListener('keydown', (e) => {
         if (e.code === "Space") {
-            e.preventDefault(); // Stop page from scrolling
-            toggleListening();
+            e.preventDefault(); 
+            if (!isListening) {
+                startListening();
+            } else {
+                stopListening();
+            }
         }
     });
 
-    function toggleListening() {
-        if (!isListening) {
-            startListening();
-        } else {
-            stopListening();
+    function startListening() {
+        try {
+            resultsBox.style.display = "none";
+            recognition.start();
+        } catch (e) {
+            console.log("Recognition already active.");
         }
     }
 
-    function startListening() {
-        try {
-            recognition.start();
-            isListening = true;
-            statusPill.textContent = "🔴 Listening... (Press Space to Stop)";
-            statusPill.classList.add('listening');
-            resultsBox.style.display = "none";
-        } catch (e) { console.log("Already started"); }
-    }
+    recognition.onstart = () => {
+        isListening = true;
+        statusPill.textContent = "🔴 Listening... (Press Space to Stop)";
+        statusPill.className = "status-pill listening";
+    };
 
     function stopListening() {
         recognition.stop();
-        isListening = false;
-        statusPill.textContent = "Processing...";
-        statusPill.classList.remove('listening');
+        statusPill.textContent = "⏳ Processing...";
+        statusPill.className = "status-pill processing";
+        
+        // Safety timeout: if server doesn't respond in 4s, reset
+        clearTimeout(processingTimeout);
+        processingTimeout = setTimeout(() => {
+            if (statusPill.textContent === "⏳ Processing...") {
+                statusPill.textContent = "⚠️ Server timed out. Try again.";
+                statusPill.className = "status-pill";
+                isListening = false;
+            }
+        }, 4000);
     }
 
     recognition.onresult = (event) => {
+        clearTimeout(processingTimeout);
         const transcript = event.results[0][0].transcript;
         const target = sentences[currentStep];
         const score = calculateSimilarity(target.toLowerCase(), transcript.toLowerCase());
@@ -94,14 +113,34 @@
         showResults(transcript, score);
     };
 
+    recognition.onend = () => {
+        isListening = false;
+        if (statusPill.className.includes("listening")) {
+            statusPill.textContent = "Press Space to Start";
+            statusPill.className = "status-pill";
+        }
+    };
+
+    recognition.onerror = (event) => {
+        clearTimeout(processingTimeout);
+        statusPill.textContent = "Error: " + event.error;
+        statusPill.className = "status-pill";
+        isListening = false;
+    };
+
     function showResults(heard, score) {
         resultsBox.style.display = "block";
         scoreDisplay.textContent = Math.round(score * 100) + "%";
         heardText.textContent = `"${heard}"`;
-        statusPill.textContent = "Press Space to try again";
+        statusPill.textContent = "Done! Press Space to try again";
+        statusPill.className = "status-pill";
         
+        if (score > 0.8) scoreDisplay.style.color = "#2ed573";
+        else if (score > 0.5) scoreDisplay.style.color = "#ffa502";
+        else scoreDisplay.style.color = "#ff4757";
+
         if(currentStep === sentences.length - 1) {
-            document.getElementById('nextBtn').textContent = "Finish & Restart";
+            document.getElementById('nextBtn').textContent = "Restart Practice";
         }
     }
 
@@ -121,10 +160,9 @@
         statusPill.textContent = "Press Space to Start";
     }
 
-    // Levenshtein Scoring Logic
     function calculateSimilarity(s1, s2) {
-        s1 = s1.replace(/[?.!,]/g,"");
-        s2 = s2.replace(/[?.!,]/g,"");
+        s1 = s1.replace(/[?.!,]/g,"").trim();
+        s2 = s2.replace(/[?.!,]/g,"").trim();
         let longer = s1.length > s2.length ? s1 : s2;
         let shorter = s1.length > s2.length ? s2 : s1;
         if (longer.length === 0) return 1.0;
