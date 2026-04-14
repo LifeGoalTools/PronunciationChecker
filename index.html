@@ -3,25 +3,24 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Speech Accuracy Coach</title>
+    <title>AI Speech Coach - Rapid Edition</title>
     <style>
         body { font-family: 'Segoe UI', sans-serif; display: flex; justify-content: center; padding: 40px; background-color: #f8f9fa; }
         .container { background: white; padding: 40px; border-radius: 24px; box-shadow: 0 15px 35px rgba(0,0,0,0.05); width: 100%; max-width: 600px; text-align: center; }
         .step-label { color: #adb5bd; font-weight: 700; text-transform: uppercase; font-size: 12px; margin-bottom: 10px; }
         
         .sentence-display { font-size: 32px; line-height: 1.5; margin: 20px 0; font-weight: 600; color: #333; }
-        .word { display: inline-block; margin: 0 4px; padding: 0 2px; transition: all 0.2s; }
+        .word { display: inline-block; margin: 0 4px; padding: 0 2px; transition: all 0.2s; border-bottom: 3px solid transparent; }
         
-        /* Clear Final States */
-        .correct { color: #2ecc71; border-bottom: 3px solid #2ecc71; }
-        .wrong { color: #e74c3c; border-bottom: 3px solid #e74c3c; }
+        /* Clear States */
+        .correct { color: #2ecc71; border-bottom-color: #2ecc71; }
+        .wrong { color: #e74c3c; border-bottom-color: #e74c3c; }
 
-        .status-pill { display: inline-block; padding: 10px 25px; border-radius: 50px; font-size: 14px; background: #eee; margin: 20px 0; transition: 0.3s; }
-        .listening { background: #ff4757; color: white; animation: pulse 1.5s infinite; }
-        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.7; } 100% { opacity: 1; } }
+        .status-pill { display: inline-block; padding: 10px 25px; border-radius: 50px; font-size: 14px; background: #eee; margin: 20px 0; transition: 0.2s; }
+        .listening { background: #ff4757; color: white; }
+        .processing { background: #3498db; color: white; }
 
         .score-display { font-size: 48px; font-weight: 800; color: #228be6; margin: 10px 0; display: none; }
-        .controls { margin-top: 20px; }
         button { background: #212529; color: white; border: none; padding: 12px 30px; border-radius: 10px; cursor: pointer; font-size: 16px; display: none; margin: 10px auto; }
         
         kbd { background: #eee; border: 1px solid #ccc; border-radius: 4px; padding: 2px 6px; font-family: monospace; }
@@ -30,7 +29,7 @@
 <body>
 
 <div class="container">
-    <div id="stepLabel" class="step-label">Loading...</div>
+    <div id="stepLabel" class="step-label">Loading Sentences...</div>
     <div id="textContainer" class="sentence-display"></div>
     
     <div id="status" class="status-pill">Press Space to Record</div>
@@ -48,21 +47,23 @@
     let currentStep = 0;
     let isListening = false;
     let recognition;
+    let watchdog;
 
-    // Load Speech Engine
+    // Initialize Speech Recognition
     if ('webkitSpeechRecognition' in window) {
         recognition = new webkitSpeechRecognition();
-        recognition.continuous = false; // Stop when the user stops talking or hits space
-        recognition.interimResults = false; // Only care about the final polished result
+        recognition.continuous = false;
+        recognition.interimResults = false;
         recognition.lang = 'en-US';
     }
 
     async function loadData() {
         try {
             const resp = await fetch('sentences.json');
+            if (!resp.ok) throw new Error();
             sentences = await resp.json();
             renderSentence();
-        } catch (e) { document.getElementById('stepLabel').innerText = "JSON Error"; }
+        } catch (e) { document.getElementById('stepLabel').innerText = "JSON FILE NOT FOUND"; }
     }
 
     function renderSentence() {
@@ -71,60 +72,91 @@
         document.getElementById('stepLabel').innerText = `Sentence ${currentStep + 1} of ${sentences.length}`;
         document.getElementById('score').style.display = "none";
         document.getElementById('nextBtn').style.display = "none";
-        document.getElementById('status').innerText = "Press Space to Record";
-        document.getElementById('status').className = "status-pill";
+        resetUI("Press Space to Record");
+    }
+
+    function resetUI(msg) {
+        const s = document.getElementById('status');
+        s.innerText = msg;
+        s.className = "status-pill";
+        isListening = false;
+        clearTimeout(watchdog);
     }
 
     window.addEventListener('keydown', (e) => {
         if (e.code === "Space") {
             e.preventDefault();
-            if (!isListening) startRecording();
-            else stopRecording();
+            if (!isListening) startMic();
+            else stopAndAnalyze();
         }
         if (e.key.toLowerCase() === "l") playExample();
     });
 
-    function startRecording() {
-        isListening = true;
-        recognition.start();
-        document.getElementById('status').innerText = "🔴 RECORDING... (Press Space to Stop)";
-        document.getElementById('status').className = "status-pill listening";
+    function startMic() {
+        try {
+            recognition.abort(); // Kill any stuck sessions
+            recognition.start();
+            isListening = true;
+            document.getElementById('status').innerText = "🔴 RECORDING...";
+            document.getElementById('status').className = "status-pill listening";
+            document.getElementById('score').style.display = "none";
+        } catch(e) { resetUI("Mic Error. Try again."); }
     }
 
-    function stopRecording() {
-        isListening = false;
+    function stopAndAnalyze() {
         recognition.stop();
-        document.getElementById('status').innerText = "Analyzing Pronunciation...";
-        document.getElementById('status').className = "status-pill";
+        isListening = false;
+        document.getElementById('status').innerText = "⏳ Analyzing...";
+        document.getElementById('status').className = "status-pill processing";
+
+        // 1-SECOND WATCHDOG: Force reset if engine hangs
+        watchdog = setTimeout(() => {
+            if (document.getElementById('status').innerText === "⏳ Analyzing...") {
+                recognition.abort();
+                resetUI("⚠️ Analysis timed out. Try again!");
+            }
+        }, 1000);
     }
 
     recognition.onresult = (event) => {
-        const result = event.results[0][0].transcript.toLowerCase().replace(/[?.!,]/g,"");
-        const target = sentences[currentStep].toLowerCase().replace(/[?.!,]/g,"");
-        const targetWords = sentences[currentStep].split(" ");
+        clearTimeout(watchdog);
         
+        if (!event.results || event.results.length === 0) {
+            resetUI("❓ No sound detected.");
+            return;
+        }
+
+        const transcript = event.results[0][0].transcript.toLowerCase().replace(/[?.!,]/g,"");
+        const targetWords = sentences[currentStep].split(" ");
         let correctCount = 0;
 
+        // Process EVERY word - prevents hanging on wrong answers
         targetWords.forEach((word, i) => {
-            const cleanWord = word.toLowerCase().replace(/[?.!,]/g,"");
-            const element = document.getElementById(`word-${i}`);
+            const cleanTarget = word.toLowerCase().replace(/[?.!,]/g,"");
+            const el = document.getElementById(`word-${i}`);
             
-            // If the transcript contains this specific word
-            if (result.includes(cleanWord)) {
-                element.className = "word correct";
+            if (transcript.includes(cleanTarget)) {
+                el.className = "word correct";
                 correctCount++;
             } else {
-                element.className = "word wrong";
+                el.className = "word wrong";
             }
         });
 
-        // Show Score
+        // Show Score (even if 0%)
         const finalScore = Math.round((correctCount / targetWords.length) * 100);
         const scoreEl = document.getElementById('score');
         scoreEl.innerText = finalScore + "%";
         scoreEl.style.display = "block";
+        
         document.getElementById('nextBtn').style.display = "block";
-        document.getElementById('status').innerText = "Done!";
+        resetUI("Done!");
+    };
+
+    recognition.onerror = (event) => {
+        clearTimeout(watchdog);
+        if (event.error === 'no-speech') resetUI("🔇 No speech detected.");
+        else resetUI("Error: " + event.error);
     };
 
     function playExample() {
