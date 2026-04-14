@@ -3,124 +3,132 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Pronunciation Scorer</title>
+    <title>English Practice - 3 Step Drill</title>
     <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; display: flex; justify-content: center; padding: 40px; background-color: #f4f7f6; }
-        .container { background: white; padding: 30px; border-radius: 15px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); width: 100%; max-width: 500px; text-align: center; }
-        h1 { color: #333; margin-bottom: 20px; }
-        textarea { width: 100%; height: 80px; padding: 12px; border: 2px solid #ddd; border-radius: 8px; margin-bottom: 20px; font-size: 16px; resize: none; box-sizing: border-box; }
-        button { background-color: #4CAF50; color: white; border: none; padding: 15px 30px; font-size: 18px; border-radius: 50px; cursor: pointer; transition: transform 0.2s, background 0.2s; width: 100%; }
-        button:active { transform: scale(0.98); }
-        button:disabled { background-color: #ccc; cursor: not-allowed; }
-        #recording-status { margin-top: 15px; color: #666; font-style: italic; min-height: 24px; }
-        .results { margin-top: 30px; padding-top: 20px; border-top: 2px solid #eee; }
-        .score-circle { width: 100px; height: 100px; border-radius: 50%; border: 8px solid #4CAF50; display: flex; align-items: center; justify-content: center; margin: 0 auto 15px; font-size: 24px; font-weight: bold; color: #333; }
-        .feedback { color: #555; line-height: 1.6; }
-        .transcript { font-weight: bold; color: #2196F3; }
+        body { font-family: 'Segoe UI', sans-serif; display: flex; justify-content: center; padding: 40px; background-color: #f0f2f5; }
+        .container { background: white; padding: 40px; border-radius: 20px; box-shadow: 0 15px 35px rgba(0,0,0,0.1); width: 100%; max-width: 600px; text-align: center; }
+        .step-indicator { color: #888; font-weight: bold; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 1px; }
+        .target-sentence { font-size: 28px; color: #2c3e50; margin-bottom: 30px; min-height: 80px; display: flex; align-items: center; justify-content: center; font-weight: 600; }
+        .status-pill { display: inline-block; padding: 8px 20px; border-radius: 20px; font-size: 14px; margin-bottom: 20px; background: #eee; transition: all 0.3s; }
+        .listening { background: #ff4757; color: white; animation: pulse 1.5s infinite; }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.7; } 100% { opacity: 1; } }
+        .controls { margin-top: 20px; }
+        .hint { font-size: 13px; color: #999; margin-top: 15px; }
+        .score-box { margin-top: 20px; padding: 20px; border-radius: 10px; display: none; background: #f9f9f9; }
+        .big-score { font-size: 48px; font-weight: bold; color: #2ed573; }
+        button { background: #2f3542; color: white; border: none; padding: 15px 30px; border-radius: 10px; cursor: pointer; font-size: 16px; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h1>VocalScore AI</h1>
-    <p>Type the sentence you want to practice:</p>
-    <textarea id="targetText" placeholder="Enter a sentence (e.g., 'The quick brown fox jumps over the lazy dog')">The weather is lovely today.</textarea>
+    <div id="stepLabel" class="step-indicator">Sentence 1 of 3</div>
+    <div id="targetDisplay" class="target-sentence">What day is it?</div>
     
-    <button id="startBtn">Start Speaking</button>
-    <div id="recording-status"></div>
+    <div id="status" class="status-pill">Press Space to Start</div>
 
-    <div id="resultsArea" class="results" style="display: none;">
-        <div class="score-circle" id="scoreDisplay">0%</div>
-        <div class="feedback">
-            <p>I heard: <span id="heardText" class="transcript">...</span></p>
-            <p id="message"></p>
-        </div>
+    <div id="results" class="score-box">
+        <div id="scoreDisplay" class="big-score">0%</div>
+        <p>I heard: <i id="heardText">...</i></p>
+        <button onclick="nextSentence()" id="nextBtn">Next Sentence</button>
     </div>
+
+    <div class="hint">Shortcut: Tap <b>Space Bar</b> to Start/Stop</div>
 </div>
 
 <script>
-    const startBtn = document.getElementById('startBtn');
-    const targetText = document.getElementById('targetText');
-    const recordingStatus = document.getElementById('recording-status');
-    const resultsArea = document.getElementById('resultsArea');
+    const sentences = ["What day is it?", "What is the date today?", "How's the weather?"];
+    let currentStep = 0;
+    let isListening = false;
+
+    const targetDisplay = document.getElementById('targetDisplay');
+    const stepLabel = document.getElementById('stepLabel');
+    const statusPill = document.getElementById('status');
+    const resultsBox = document.getElementById('results');
     const scoreDisplay = document.getElementById('scoreDisplay');
     const heardText = document.getElementById('heardText');
-    const message = document.getElementById('message');
 
-    // Check for browser support
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    
-    if (!SpeechRecognition) {
-        alert("Your browser does not support Speech Recognition. Please try Chrome or Edge.");
-    } else {
-        const recognition = new SpeechRecognition();
-        recognition.lang = 'en-US';
-        recognition.interimResults = false;
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'en-US';
+    recognition.interimResults = false;
 
-        startBtn.onclick = () => {
-            recognition.start();
-            startBtn.disabled = true;
-            startBtn.textContent = "Listening...";
-            recordingStatus.textContent = "Speak now...";
-            resultsArea.style.display = "none";
-        };
+    // --- Key Logic: Space Bar Toggle ---
+    window.addEventListener('keydown', (e) => {
+        if (e.code === "Space") {
+            e.preventDefault(); // Stop page from scrolling
+            toggleListening();
+        }
+    });
 
-        recognition.onresult = (event) => {
-            const transcript = event.results[0][0].transcript;
-            const original = targetText.value;
-            
-            processResult(original, transcript);
-        };
-
-        recognition.onspeechend = () => {
-            recognition.stop();
-            startBtn.disabled = false;
-            startBtn.textContent = "Start Speaking";
-            recordingStatus.textContent = "";
-        };
-
-        recognition.onerror = (event) => {
-            recordingStatus.textContent = "Error occurred: " + event.error;
-            startBtn.disabled = false;
-            startBtn.textContent = "Start Speaking";
-        };
+    function toggleListening() {
+        if (!isListening) {
+            startListening();
+        } else {
+            stopListening();
+        }
     }
 
-    function processResult(original, heard) {
-        const score = calculateSimilarity(original.toLowerCase(), heard.toLowerCase());
+    function startListening() {
+        try {
+            recognition.start();
+            isListening = true;
+            statusPill.textContent = "🔴 Listening... (Press Space to Stop)";
+            statusPill.classList.add('listening');
+            resultsBox.style.display = "none";
+        } catch (e) { console.log("Already started"); }
+    }
+
+    function stopListening() {
+        recognition.stop();
+        isListening = false;
+        statusPill.textContent = "Processing...";
+        statusPill.classList.remove('listening');
+    }
+
+    recognition.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        const target = sentences[currentStep];
+        const score = calculateSimilarity(target.toLowerCase(), transcript.toLowerCase());
         
-        resultsArea.style.display = "block";
+        showResults(transcript, score);
+    };
+
+    function showResults(heard, score) {
+        resultsBox.style.display = "block";
         scoreDisplay.textContent = Math.round(score * 100) + "%";
         heardText.textContent = `"${heard}"`;
-
-        if (score > 0.9) {
-            message.textContent = "Excellent! Perfect pronunciation.";
-            scoreDisplay.style.borderColor = "#4CAF50";
-        } else if (score > 0.7) {
-            message.textContent = "Good job! A few minor slips.";
-            scoreDisplay.style.borderColor = "#FFC107";
-        } else {
-            message.textContent = "Keep practicing! Try to enunciate more clearly.";
-            scoreDisplay.style.borderColor = "#f44336";
+        statusPill.textContent = "Press Space to try again";
+        
+        if(currentStep === sentences.length - 1) {
+            document.getElementById('nextBtn').textContent = "Finish & Restart";
         }
     }
 
-    // Basic Levenshtein Similarity calculation
-    function calculateSimilarity(s1, s2) {
-        // Remove punctuation for fairer scoring
-        s1 = s1.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g,"");
-        s2 = s2.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g,"");
-        
-        let longer = s1;
-        let shorter = s2;
-        if (s1.length < s2.length) {
-            longer = s2;
-            shorter = s1;
+    function nextSentence() {
+        currentStep++;
+        if (currentStep >= sentences.length) {
+            currentStep = 0;
+            document.getElementById('nextBtn').textContent = "Next Sentence";
         }
-        const longerLength = longer.length;
-        if (longerLength === 0) return 1.0;
-        
-        return (longerLength - editDistance(longer, shorter)) / parseFloat(longerLength);
+        updateUI();
+    }
+
+    function updateUI() {
+        targetDisplay.textContent = sentences[currentStep];
+        stepLabel.textContent = `Sentence ${currentStep + 1} of ${sentences.length}`;
+        resultsBox.style.display = "none";
+        statusPill.textContent = "Press Space to Start";
+    }
+
+    // Levenshtein Scoring Logic
+    function calculateSimilarity(s1, s2) {
+        s1 = s1.replace(/[?.!,]/g,"");
+        s2 = s2.replace(/[?.!,]/g,"");
+        let longer = s1.length > s2.length ? s1 : s2;
+        let shorter = s1.length > s2.length ? s2 : s1;
+        if (longer.length === 0) return 1.0;
+        return (longer.length - editDistance(longer, shorter)) / parseFloat(longer.length);
     }
 
     function editDistance(s1, s2) {
@@ -129,14 +137,12 @@
             let lastValue = i;
             for (let j = 0; j <= s2.length; j++) {
                 if (i === 0) costs[j] = j;
-                else {
-                    if (j > 0) {
-                        let newValue = costs[j - 1];
-                        if (s1.charAt(i - 1) !== s2.charAt(j - 1))
-                            newValue = Math.min(Math.min(newValue, lastValue), costs[j]) + 1;
-                        costs[j - 1] = lastValue;
-                        lastValue = newValue;
-                    }
+                else if (j > 0) {
+                    let newValue = costs[j - 1];
+                    if (s1.charAt(i - 1) !== s2.charAt(j - 1))
+                        newValue = Math.min(Math.min(newValue, lastValue), costs[j]) + 1;
+                    costs[j - 1] = lastValue;
+                    lastValue = newValue;
                 }
             }
             if (i > 0) costs[s2.length] = lastValue;
